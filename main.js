@@ -7533,8 +7533,18 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
   }
   async onload() {
     this.pluginData = await this.loadData() || {};
+    this.lastActiveTerminalLeaf = null;
 
     this.registerView(VIEW_TYPE, (leaf) => new TerminalView(leaf, this));
+
+    // Track the most recently focused Claude tab
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', (leaf) => {
+        if (leaf && leaf.view instanceof TerminalView) {
+          this.lastActiveTerminalLeaf = leaf;
+        }
+      })
+    );
     const ribbonIcon = this.addRibbonIcon("bot", "New Claude Tab", () => {
       const now = Date.now();
       if (now - this.lastRibbonClick < 1500) return; // 1.5s throttle to prevent accidental double-clicks
@@ -7715,6 +7725,22 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
         }
       })
     );
+    // Register editor context menu (right-click on selected text)
+    this.registerEvent(
+      this.app.workspace.on('editor-menu', (menu, editor, view) => {
+        const selection = editor.getSelection();
+        if (selection) {
+          menu.addItem(item =>
+            item
+              .setTitle('Send selection to Claude')
+              .setIcon('bot')
+              .onClick(() => {
+                this.sendTextToTerminal(selection);
+              })
+          );
+        }
+      })
+    );
     this.addSettingTab(new ClaudeSidebarSettingsTab(this.app, this));
   }
   async toggleFocus() {
@@ -7726,12 +7752,15 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
         this.app.workspace.setActiveLeaf(leaves[0], { focus: true });
       }
     } else {
-      // Currently in editor, go to Claude
+      // Currently in editor, go to Claude (prefer last-active tab)
       const claudeLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
       if (claudeLeaves.length > 0) {
-        this.app.workspace.setActiveLeaf(claudeLeaves[0], { focus: true });
-        // Focus the terminal
-        const view = claudeLeaves[0].view;
+        let target = claudeLeaves[0];
+        if (this.lastActiveTerminalLeaf && claudeLeaves.includes(this.lastActiveTerminalLeaf)) {
+          target = this.lastActiveTerminalLeaf;
+        }
+        this.app.workspace.setActiveLeaf(target, { focus: true });
+        const view = target.view;
         if (view instanceof TerminalView && view.term) {
           view.term.focus();
         }
@@ -7791,7 +7820,11 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
     }
     if (leaves.length === 0) return false;
 
-    const leaf = leaves[0];
+    // Prefer the most recently focused Claude tab, fall back to first
+    let leaf = leaves[0];
+    if (this.lastActiveTerminalLeaf && leaves.includes(this.lastActiveTerminalLeaf)) {
+      leaf = this.lastActiveTerminalLeaf;
+    }
     const view = leaf.view;
 
     if (!(view instanceof TerminalView)) return false;
