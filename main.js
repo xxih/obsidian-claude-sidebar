@@ -7070,10 +7070,62 @@ var TerminalView = class extends import_obsidian.ItemView {
     const bg = styles.getPropertyValue("--background-secondary").trim() || "#1e1e1e";
     const fg = styles.getPropertyValue("--text-normal").trim() || "#d4d4d4";
     const cursor = styles.getPropertyValue("--text-accent").trim() || "#ffffff";
-    // Light mode needs a more visible selection color
     const isLightMode = document.body.classList.contains("theme-light");
-    const selectionBackground = isLightMode ? "rgba(0, 100, 200, 0.3)" : undefined;
-    return { background: bg, foreground: fg, cursor, selectionBackground };
+    const selectionBackground = isLightMode ? "rgba(0, 100, 200, 0.3)" : "rgba(255, 255, 255, 0.15)";
+    // Complete ANSI 16-color palettes ensure CLI tools (Claude Code, git, etc.)
+    // render readable text in both light and dark Obsidian themes.
+    // Without these, xterm.js uses default dark-mode ANSI colors regardless of
+    // the Obsidian theme, causing light-on-light or dark-on-dark contrast issues.
+    if (isLightMode) {
+      return {
+        background: bg,
+        foreground: fg,
+        cursor,
+        selectionBackground,
+        // Standard ANSI colors (0-7) tuned for light backgrounds
+        black:         "#383a42",
+        red:           "#e45649",
+        green:         "#50a14f",
+        yellow:        "#c18401",
+        blue:          "#4078f2",
+        magenta:       "#a626a4",
+        cyan:          "#0184bc",
+        white:         "#fafafa",
+        // Bright ANSI colors (8-15)
+        brightBlack:   "#a0a1a7",
+        brightRed:     "#e06c75",
+        brightGreen:   "#98c379",
+        brightYellow:  "#d19a66",
+        brightBlue:    "#61afef",
+        brightMagenta: "#c678dd",
+        brightCyan:    "#56b6c2",
+        brightWhite:   "#ffffff"
+      };
+    }
+    return {
+      background: bg,
+      foreground: fg,
+      cursor,
+      selectionBackground,
+      // Standard ANSI colors (0-7) tuned for dark backgrounds
+      black:         "#000000",
+      red:           "#ff5555",
+      green:         "#50fa7b",
+      yellow:        "#f1fa8c",
+      blue:          "#6272a4",
+      magenta:       "#ff79c6",
+      cyan:          "#8be9fd",
+      white:         "#f8f8f2",
+      // Bright ANSI colors (8-15)
+      brightBlack:   "#6272a4",
+      brightRed:     "#ff6e6e",
+      brightGreen:   "#69ff94",
+      brightYellow:  "#ffffa5",
+      brightBlue:    "#d6acff",
+      brightMagenta: "#ff92df",
+      brightCyan:    "#a4ffff",
+      brightWhite:   "#ffffff"
+    };
   }
   updateTheme() {
     if (!this.term) return;
@@ -7341,7 +7393,7 @@ var TerminalView = class extends import_obsidian.ItemView {
       : [ptyPath, String(cols), String(rows), shell, "-lc", shellCmd];
 
     // Get PATH from user's login shell (GUI apps don't inherit shell config)
-    let shellEnv = { ...process.env, TERM: "xterm-256color" };
+    let shellEnv = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" };
     if (!isWindows) {
       try {
         const shellOutput = (0, import_child_process.execSync)(
