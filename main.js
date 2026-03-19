@@ -6761,6 +6761,9 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.stderrDecoder = null;
     // Terminal ready detection
     this.hasOutput = false;
+    // Scroll coordination: prevents stdout handler and fit() from fighting
+    this._fitPending = false;
+    this._scrollTarget = null;
     // Custom working directory (set via folder context menu)
     this.workingDir = null;
     // YOLO mode (--dangerously-skip-permissions)
@@ -7263,6 +7266,11 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.ensureFitWithRetry();
     this.resizeObserver = new ResizeObserver(() => this.debouncedFit());
     this.resizeObserver.observe(this.termHost);
+    // Track user scroll intent so auto-scroll doesn't fight the user
+    this.userScrolledAt = 0;
+    this.termHost.addEventListener("wheel", () => {
+      this.userScrolledAt = Date.now();
+    }, { passive: true });
     // Watch for theme changes
     this.themeObserver = new MutationObserver(() => this.updateTheme());
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
@@ -7272,12 +7280,18 @@ var TerminalView = class extends import_obsidian.ItemView {
   fit() {
     if (!this.term || !this.fitAddon) return;
     try {
-      // Check if terminal is at bottom before resize
-      const wasAtBottom = this.term.buffer.active.baseY === this.term.buffer.active.viewportY;
+      const userScrolled = Date.now() - (this.userScrolledAt || 0) < 1000;
+      const wasAtBottom = !userScrolled && this.term.buffer.active.baseY === this.term.buffer.active.viewportY;
+      const savedViewportY = this._fitPending && this._scrollTarget !== null
+        ? this._scrollTarget
+        : this.term.buffer.active.viewportY;
+      this._fitPending = false;
+      this._scrollTarget = null;
       this.fitAddon.fit();
-      // Only auto-scroll if we were already at bottom
       if (wasAtBottom) {
         this.term.scrollToBottom();
+      } else if (this.term.buffer.active.viewportY !== savedViewportY) {
+        this.term.scrollToLine(savedViewportY);
       }
     } catch (e) {}
   }
@@ -7430,13 +7444,25 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.proc.stdout?.on("data", (data) => {
       this.hasOutput = true;
       if (this.term) {
-        // Check if at exact bottom before write
         const buffer = this.term.buffer.active;
-        const atBottom = buffer.baseY === buffer.viewportY;
-        this.term.write(this.stdoutDecoder.write(data));
-        // Only auto-scroll if we were at exact bottom
+        const userScrolled = Date.now() - this.userScrolledAt < 1000;
+        const atBottom = !userScrolled && buffer.baseY === buffer.viewportY;
+        const savedViewportY = buffer.viewportY;
+        const text = this.stdoutDecoder.write(data);
+        const hasCursorHome = text.includes("\x1b[H");
+        this.term.write(text);
         if (atBottom) {
           this.term.scrollToBottom();
+        } else if (!hasCursorHome) {
+          const jumped = buffer.viewportY !== savedViewportY;
+          if (jumped) {
+            this.term.scrollToLine(savedViewportY);
+          }
+        }
+        if (hasCursorHome) {
+          this._fitPending = true;
+          this._scrollTarget = savedViewportY;
+          this.debouncedFit();
         }
       }
     });
