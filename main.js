@@ -7228,6 +7228,16 @@ var TerminalView = class extends import_obsidian.ItemView {
     };
     this.termHost.addEventListener('dragover', this.fileDragOverHandler);
     this.termHost.addEventListener('drop', this.fileDropHandler);
+    // Windows right-click paste: Windows terminal convention is right-click = paste
+    if (process.platform === 'win32') {
+      this.termHost.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        navigator.clipboard.readText().then((text) => {
+          if (text) this.term.paste(text);
+        }).catch(() => {});
+      });
+    }
     this.term.attachCustomKeyEventHandler((ev) => {
       // Shift+Enter: send Alt+Enter for multi-line input
       // Must block both keydown and keypress events to prevent xterm from sending normal Enter
@@ -7240,6 +7250,25 @@ var TerminalView = class extends import_obsidian.ItemView {
         return false; // Block both keydown and keypress
       }
       if (ev.type === 'keydown') {
+        // Windows Ctrl+V: paste from clipboard (Obsidian intercepts this before xterm sees it)
+        if (ev.key === 'v' && ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey) {
+          ev.preventDefault();
+          navigator.clipboard.readText().then((text) => {
+            if (text) this.term.paste(text);
+          }).catch(() => {});
+          return false;
+        }
+        // Windows Ctrl+C: copy selection or send interrupt
+        if (ev.key === 'c' && ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey) {
+          ev.preventDefault();
+          const selection = this.term.getSelection();
+          if (selection) {
+            navigator.clipboard.writeText(selection).catch(() => {});
+          } else {
+            this.proc?.stdin?.write('\x03');
+          }
+          return false;
+        }
         // Cmd+Arrow: readline shortcuts for line navigation
         if (ev.metaKey) {
           if (ev.key === 'ArrowRight') {
