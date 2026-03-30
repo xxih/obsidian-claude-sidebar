@@ -6739,6 +6739,14 @@ var CLI_BACKENDS = {
     resumeFlag: "--resume",
     resumeIsSubcommand: false,
   },
+  kimi: {
+    label: "Kimi Code",
+    binary: "kimi",
+    pathHints: [],
+    yoloFlag: "--yolo",
+    resumeFlag: "--continue",
+    resumeIsSubcommand: false,
+  },
 };
 var TerminalView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
