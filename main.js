@@ -7265,9 +7265,7 @@ var TerminalView = class extends import_obsidian.ItemView {
         if (process.platform === 'darwin' && ev.altKey && !ev.metaKey && !ev.ctrlKey) {
           if (ev.key && ev.key.length === 1) {
             ev.preventDefault();
-            if (this.proc && !this.proc.killed) {
-              this.proc.stdin?.write(ev.key);
-            }
+            this.term.paste(ev.key);
             return false;
           }
           return true;
