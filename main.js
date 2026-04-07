@@ -6814,16 +6814,25 @@ var TerminalView = class extends import_obsidian.ItemView {
     return state;
   }
   async onOpen() {
-    this.injectCSS();
-    this.buildUI();
-    this.initTerminal();
-    // Delay shell start slightly to allow setState() to be called first
-    setTimeout(() => {
-      if (!this.proc) {
-        this.startShell(this.workingDir, this.yoloMode, this.continueSession);
-      }
-    }, 10);
-    this.setupEscapeHandler();
+    try {
+      this.injectCSS();
+      this.buildUI();
+      this.initTerminal();
+      // Delay shell start slightly to allow setState() to be called first
+      setTimeout(() => {
+        try {
+          if (!this.proc) {
+            this.startShell(this.workingDir, this.yoloMode, this.continueSession);
+          }
+        } catch (err) {
+          console.error("[Claude Sidebar] Failed to start shell:", err);
+          this.term?.writeln(`\r\n[Failed to start shell: ${err.message}]`);
+        }
+      }, 10);
+      this.setupEscapeHandler();
+    } catch (err) {
+      console.error("[Claude Sidebar] Failed to initialize terminal:", err);
+    }
   }
   setupEscapeHandler() {
     // Use Obsidian's Scope API to intercept Escape at keymap level
