@@ -6792,6 +6792,7 @@ var TerminalView = class extends import_obsidian.ItemView {
   }
   // Obsidian calls setState() with custom state from setViewState()
   async setState(state, result) {
+    await super.setState(state, result);
     if (state?.workingDir) {
       this.workingDir = state.workingDir;
     }
