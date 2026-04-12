@@ -6816,6 +6816,19 @@ var TerminalView = class extends import_obsidian.ItemView {
   }
   async onOpen() {
     try {
+      // If terminal is still alive from a prior onOpen, just reattach and focus.
+      // Obsidian calls onOpen() each time the view becomes visible; without this
+      // guard, switching panels spawns a fresh Claude process (and banner) every time.
+      if (this.term && !this._isDisposed) {
+        if (this.termHost && !this.termHost.isConnected) {
+          this.buildUI();
+          this.term.open(this.termHost);
+          this.fitAddon?.fit();
+        }
+        this.term.focus();
+        return;
+      }
+      this._isDisposed = false;
       this.injectCSS();
       this.buildUI();
       this.initTerminal();
