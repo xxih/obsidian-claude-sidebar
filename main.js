@@ -7493,6 +7493,7 @@ var TerminalView = class extends import_obsidian.ItemView {
         const atBottom = !userScrolled && buffer.baseY === buffer.viewportY;
         const savedViewportY = buffer.viewportY;
         const text = this.stdoutDecoder.write(data);
+        this.detectNotifications(text);
         const hasCursorHome = text.includes("\x1b[H");
         this.term.write(text);
         if (atBottom) {
@@ -7556,6 +7557,67 @@ var TerminalView = class extends import_obsidian.ItemView {
           this.proc.stdin?.write(winCmd + '\r');
         }
       }, 1000);
+    }
+  }
+  getNotificationTitle() {
+    if (this.plugin.pluginData.cliBackend === "custom") {
+      const cmd = (this.plugin.pluginData.customCommand || "").trim();
+      const first = cmd.split(/\s+/)[0] || "Claude";
+      return first.split("/").pop() || "Claude";
+    }
+    return this.getBackend()?.label || "Claude";
+  }
+  // Scan incoming terminal output for OSC notification escape sequences used by
+  // Claude Code, Codex, and iTerm-compatible tools. Supported forms:
+  //   OSC 9 ; <body>                          BEL / ST   (iTerm2 / Claude Code)
+  //   OSC 777 ; notify ; <title> ; <body>     BEL / ST   (rxvt-unicode)
+  //   OSC 99 ; ... ; <body>                   BEL / ST   (kitty / ghostty)
+  detectNotifications(text) {
+    if (!text || !this.plugin?.pluginData) return;
+    const enabled = this.plugin.pluginData.notificationsEnabled !== false;
+    if (!enabled) return;
+    if (!text.includes("\x1b]")) return;
+    const oscRe = /\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+    let match;
+    while ((match = oscRe.exec(text)) !== null) {
+      const code = match[1];
+      const payload = match[2];
+      let title = this.getNotificationTitle();
+      let body = null;
+      if (code === "9") {
+        body = payload;
+      } else if (code === "777") {
+        const parts = payload.split(";");
+        if (parts[0] === "notify" && parts.length >= 2) {
+          title = parts[1] || title;
+          body = parts.slice(2).join(";");
+        }
+      } else if (code === "99") {
+        const semi = payload.lastIndexOf(";");
+        body = semi >= 0 ? payload.slice(semi + 1) : payload;
+      }
+      if (body && body.trim()) this.fireNotification(title, body.trim());
+    }
+  }
+  fireNotification(title, body) {
+    const mode = this.plugin.pluginData.notificationMode || "smart";
+    const wantInApp = mode === "in-app" || mode === "both" || (mode === "smart" && document.hasFocus());
+    const wantSystem = mode === "system" || mode === "both" || (mode === "smart" && !document.hasFocus());
+    if (wantInApp) {
+      try { new import_obsidian.Notice(`${title}: ${body}`, 5000); } catch (e) {}
+    }
+    if (wantSystem) {
+      try {
+        if (typeof Notification !== "undefined") {
+          if (Notification.permission === "granted") {
+            new Notification(title, { body });
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((p) => {
+              if (p === "granted") new Notification(title, { body });
+            });
+          }
+        }
+      } catch (e) {}
     }
   }
   stopShell() {
@@ -7673,6 +7735,28 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
           await this.plugin.saveData(this.plugin.pluginData);
         });
       });
+    new import_obsidian.Setting(containerEl)
+      .setName("Notifications")
+      .setDesc("Show a notification when the agent finishes a task (via OSC 9/99/777 escape sequences from the CLI).")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.pluginData.notificationsEnabled !== false)
+        .onChange(async (value) => {
+          this.plugin.pluginData.notificationsEnabled = value;
+          await this.plugin.saveData(this.plugin.pluginData);
+        }));
+    new import_obsidian.Setting(containerEl)
+      .setName("Notification style")
+      .setDesc("Smart: system notification when Obsidian is in the background, in-app toast when focused. In-app only / System only / Both override that.")
+      .addDropdown(drop => drop
+        .addOption("smart", "Smart (recommended)")
+        .addOption("in-app", "In-app toast only")
+        .addOption("system", "System notification only")
+        .addOption("both", "Both")
+        .setValue(this.plugin.pluginData.notificationMode || "smart")
+        .onChange(async (value) => {
+          this.plugin.pluginData.notificationMode = value;
+          await this.plugin.saveData(this.plugin.pluginData);
+        }));
   }
 };
 var VaultTerminalPlugin = class extends import_obsidian.Plugin {
