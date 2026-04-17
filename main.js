@@ -7472,8 +7472,21 @@ var TerminalView = class extends import_obsidian.ItemView {
       ? [ptyPath, String(cols), String(rows), shell]
       : [ptyPath, String(cols), String(rows), shell, shellFlag, shellCmd];
 
-    // Get PATH from user's login shell (GUI apps don't inherit shell config)
-    let shellEnv = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" };
+    // Get PATH from user's login shell (GUI apps don't inherit shell config).
+    // Advertise as iTerm2 via TERM_PROGRAM so Claude Code / Codex / other agent
+    // CLIs enable their OSC 9 notification channel automatically — mirrors
+    // cmux's approach (it spoofs TERM_PROGRAM=ghostty). Without this, agents
+    // see an unknown terminal and skip OSC emission, forcing users to hand-
+    // configure Stop/Notification hooks.
+    let shellEnv = {
+      ...process.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      TERM_PROGRAM: "iTerm.app",
+      TERM_PROGRAM_VERSION: "3.5.0",
+      LC_TERMINAL: "iTerm2",
+      LC_TERMINAL_VERSION: "3.5.0",
+    };
     if (!isWindows) {
       try {
         const shellOutput = (0, import_child_process.execSync)(
