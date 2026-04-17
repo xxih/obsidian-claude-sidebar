@@ -7599,27 +7599,50 @@ var TerminalView = class extends import_obsidian.ItemView {
     if (!text || !this.plugin?.pluginData) return;
     const enabled = this.plugin.pluginData.notificationsEnabled !== false;
     if (!enabled) return;
-    if (!text.includes("\x1b]")) return;
-    const oscRe = /\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-    let match;
-    while ((match = oscRe.exec(text)) !== null) {
-      const code = match[1];
-      const payload = match[2];
-      let title = this.getNotificationTitle();
-      let body = null;
-      if (code === "9") {
-        body = payload;
-      } else if (code === "777") {
-        const parts = payload.split(";");
-        if (parts[0] === "notify" && parts.length >= 2) {
-          title = parts[1] || title;
-          body = parts.slice(2).join(";");
+    let oscMatched = false;
+    // 1) OSC notification sequences — explicit, rich payload.
+    if (text.includes("\x1b]")) {
+      const oscRe = /\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+      let match;
+      while ((match = oscRe.exec(text)) !== null) {
+        const code = match[1];
+        const payload = match[2];
+        let title = this.getNotificationTitle();
+        let body = null;
+        if (code === "9") {
+          body = payload;
+        } else if (code === "777") {
+          const parts = payload.split(";");
+          if (parts[0] === "notify" && parts.length >= 2) {
+            title = parts[1] || title;
+            body = parts.slice(2).join(";");
+          }
+        } else if (code === "99") {
+          const semi = payload.lastIndexOf(";");
+          body = semi >= 0 ? payload.slice(semi + 1) : payload;
         }
-      } else if (code === "99") {
-        const semi = payload.lastIndexOf(";");
-        body = semi >= 0 ? payload.slice(semi + 1) : payload;
+        if (body && body.trim()) {
+          oscMatched = true;
+          this.fireNotification(title, body.trim());
+          this._lastNotifAt = Date.now();
+        }
       }
-      if (body && body.trim()) this.fireNotification(title, body.trim());
+    }
+    // 2) Terminal bell (\x07) — Claude Code's default "needs attention" signal.
+    // Rate-limited to one notification per 2s, and suppressed right after an
+    // OSC match to avoid double-firing. Opt-out via notifyOnBell: false.
+    const bellEnabled = this.plugin.pluginData.notifyOnBell !== false;
+    if (bellEnabled && !oscMatched && text.includes("\x07")) {
+      // Strip bells inside OSC sequences (already consumed above) from the count
+      const stripped = text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+      if (stripped.includes("\x07")) {
+        const now = Date.now();
+        const sinceLast = now - (this._lastNotifAt || 0);
+        if (sinceLast > 2000) {
+          this._lastNotifAt = now;
+          this.fireNotification(this.getNotificationTitle(), "Needs attention");
+        }
+      }
     }
   }
   fireNotification(title, body) {
@@ -7776,11 +7799,20 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
         }));
     new import_obsidian.Setting(containerEl)
       .setName("Notifications")
-      .setDesc("Show a notification when the agent finishes a task (via OSC 9/99/777 escape sequences from the CLI).")
+      .setDesc("Show a notification when the agent finishes a task. Captures OSC 9/99/777 escape sequences and the terminal bell (\\x07) that Claude Code sends by default.")
       .addToggle(toggle => toggle
         .setValue(this.plugin.pluginData.notificationsEnabled !== false)
         .onChange(async (value) => {
           this.plugin.pluginData.notificationsEnabled = value;
+          await this.plugin.saveData(this.plugin.pluginData);
+        }));
+    new import_obsidian.Setting(containerEl)
+      .setName("Notify on terminal bell")
+      .setDesc("Treat a bare terminal bell as a notification. On by default — Claude Code rings the bell to get your attention. Turn off if you find it noisy.")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.pluginData.notifyOnBell !== false)
+        .onChange(async (value) => {
+          this.plugin.pluginData.notifyOnBell = value;
           await this.plugin.saveData(this.plugin.pluginData);
         }));
     new import_obsidian.Setting(containerEl)
