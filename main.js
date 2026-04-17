@@ -7846,6 +7846,22 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
           await this.plugin.saveData(this.plugin.pluginData);
         }));
     new import_obsidian.Setting(containerEl)
+      .setName("Auto-install Claude Code notification hook")
+      .setDesc("Writes a Stop hook into ~/.claude/settings.json so Claude Code fires a notification at the end of every turn via obsidian://claude-sidebar-notify. Turn off to manage the hook yourself.")
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.pluginData.autoInstallClaudeHooks !== false)
+        .onChange(async (value) => {
+          this.plugin.pluginData.autoInstallClaudeHooks = value;
+          await this.plugin.saveData(this.plugin.pluginData);
+          if (value) {
+            try { await this.plugin.installClaudeHooks(); new import_obsidian.Notice("Claude Sidebar: hook installed.", 4000); }
+            catch (e) { new import_obsidian.Notice(`Install failed: ${e.message}`, 6000); }
+          } else {
+            try { await this.plugin.removeClaudeHooks(); new import_obsidian.Notice("Claude Sidebar: hook removed.", 4000); }
+            catch (e) { new import_obsidian.Notice(`Remove failed: ${e.message}`, 6000); }
+          }
+        }));
+    new import_obsidian.Setting(containerEl)
       .setName("Notify on terminal bell")
       .setDesc("Treat a bare terminal bell as a notification. On by default — Claude Code rings the bell to get your attention. Turn off if you find it noisy.")
       .addToggle(toggle => toggle
@@ -7869,11 +7885,89 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
         }));
   }
 };
+var CLAUDE_HOOK_URI = "obsidian://claude-sidebar-notify";
+var CLAUDE_HOOK_COMMAND = `(open -g 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' 2>/dev/null || xdg-open 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' >/dev/null 2>&1) || true`;
 var VaultTerminalPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.lastRibbonClick = 0;
     this.pluginData = {};
+  }
+  firePluginNotification(title, body) {
+    const mode = this.pluginData.notificationMode || "smart";
+    const focused = document.hasFocus();
+    const wantInApp = mode === "in-app" || mode === "both" || (mode === "smart" && focused);
+    const wantSystem = mode === "system" || mode === "both" || (mode === "smart" && !focused);
+    if (wantInApp) {
+      try { new import_obsidian.Notice(`${title}: ${body}`, 5000); } catch (e) {}
+    }
+    if (wantSystem) {
+      try {
+        if (typeof Notification !== "undefined") {
+          if (Notification.permission === "granted") {
+            new Notification(title, { body });
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((p) => {
+              if (p === "granted") new Notification(title, { body });
+            });
+          }
+        }
+      } catch (e) {}
+    }
+  }
+  getClaudeSettingsPath() {
+    const home = process.env.HOME || require("os").homedir();
+    return path.join(home, ".claude", "settings.json");
+  }
+  readClaudeSettings() {
+    const p = this.getClaudeSettingsPath();
+    if (!fs.existsSync(p)) return {};
+    try { return JSON.parse(fs.readFileSync(p, "utf8")) || {}; } catch { return {}; }
+  }
+  writeClaudeSettings(data) {
+    const p = this.getClaudeSettingsPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(data, null, 2) + "\n", "utf8");
+  }
+  // Scrub any hook entry whose command references our URI scheme OR the earlier
+  // plain-tty variant, so reinstall is idempotent and upgrades from older
+  // versions clean up after themselves.
+  pruneOwnedStopHooks(stopGroups) {
+    return (stopGroups || []).map(group => {
+      const subHooks = (group.hooks || []).filter(h => {
+        const cmd = (h && h.command) || "";
+        if (cmd.includes(CLAUDE_HOOK_URI)) return false;
+        if (cmd.includes("]9;Claude: turn complete")) return false;
+        return true;
+      });
+      return { ...group, hooks: subHooks };
+    }).filter(g => (g.hooks || []).length > 0);
+  }
+  async installClaudeHooks() {
+    const settings = this.readClaudeSettings();
+    settings.hooks = settings.hooks || {};
+    settings.hooks.Stop = this.pruneOwnedStopHooks(settings.hooks.Stop);
+    settings.hooks.Stop.push({
+      hooks: [{ type: "command", command: CLAUDE_HOOK_COMMAND }]
+    });
+    this.writeClaudeSettings(settings);
+    return true;
+  }
+  async removeClaudeHooks() {
+    const settings = this.readClaudeSettings();
+    if (!settings.hooks) return false;
+    const before = JSON.stringify(settings.hooks.Stop || []);
+    settings.hooks.Stop = this.pruneOwnedStopHooks(settings.hooks.Stop);
+    if ((settings.hooks.Stop || []).length === 0) delete settings.hooks.Stop;
+    if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+    const after = JSON.stringify(settings.hooks ? settings.hooks.Stop || [] : []);
+    this.writeClaudeSettings(settings);
+    return before !== after;
+  }
+  hasOwnedClaudeHook() {
+    const settings = this.readClaudeSettings();
+    const stopGroups = (settings.hooks && settings.hooks.Stop) || [];
+    return stopGroups.some(g => (g.hooks || []).some(h => (h.command || "").includes(CLAUDE_HOOK_URI)));
   }
   async onload() {
     this.registerView(VIEW_TYPE, (leaf) => new TerminalView(leaf, this));
@@ -7881,6 +7975,33 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
     this.lastActiveTerminalLeaf = null;
     this.layoutReady = false;
     this.app.workspace.onLayoutReady(() => { this.layoutReady = true; });
+
+    // URI handler: Claude Code's Stop hook dispatches obsidian://claude-sidebar-notify
+    // when a turn finishes; map the query params onto the same notification
+    // pipeline used for OSC-captured events.
+    this.registerObsidianProtocolHandler("claude-sidebar-notify", (params) => {
+      const title = params.title || "Claude";
+      const body = params.msg || params.body || "Notification";
+      this.firePluginNotification(title, body);
+    });
+
+    // Auto-install the Stop hook in ~/.claude/settings.json the first time the
+    // plugin loads (and on subsequent loads if it has been removed). Keeps the
+    // "notifications Just Work" promise without users ever editing Claude's
+    // config themselves — the cmux-style experience, minus the manual step.
+    if (this.pluginData.autoInstallClaudeHooks !== false) {
+      try {
+        if (!this.hasOwnedClaudeHook()) {
+          await this.installClaudeHooks();
+          new import_obsidian.Notice(
+            "Claude Sidebar: installed turn-complete notification hook in ~/.claude/settings.json",
+            6000
+          );
+        }
+      } catch (e) {
+        console.warn("[Claude Sidebar] Auto hook install failed:", e);
+      }
+    }
 
     // Track the most recently focused Claude tab
     this.registerEvent(
@@ -8076,6 +8197,37 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
               console.warn("[Claude Sidebar] window.Notification is undefined.");
             }
           } catch (e) { console.warn(e); }
+        }
+      }
+    });
+    this.addCommand({
+      id: "install-claude-hooks",
+      name: "Install Claude Code notification hook",
+      callback: async () => {
+        try {
+          await this.installClaudeHooks();
+          new import_obsidian.Notice("Claude Sidebar: Stop hook installed. Restart any live claude sessions to pick it up.", 6000);
+        } catch (e) {
+          new import_obsidian.Notice(`Claude Sidebar: install failed — ${e.message}`, 8000);
+          console.error("[Claude Sidebar] install hook error:", e);
+        }
+      }
+    });
+    this.addCommand({
+      id: "remove-claude-hooks",
+      name: "Remove Claude Code notification hook",
+      callback: async () => {
+        try {
+          const removed = await this.removeClaudeHooks();
+          new import_obsidian.Notice(
+            removed
+              ? "Claude Sidebar: Stop hook removed from ~/.claude/settings.json."
+              : "Claude Sidebar: no owned hooks found — nothing to remove.",
+            5000
+          );
+        } catch (e) {
+          new import_obsidian.Notice(`Claude Sidebar: remove failed — ${e.message}`, 8000);
+          console.error("[Claude Sidebar] remove hook error:", e);
         }
       }
     });
