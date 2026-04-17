@@ -1,19 +1,30 @@
-# Claude Sidebar
+# Claude Sidebar (xxih fork)
 
-Run Claude Code in your Obsidian sidebar.
+Run Claude Code in your Obsidian sidebar — with custom command support, GPU rendering, and zero-config task notifications.
 
-Built by [Derek Larson](https://dtlarson.com). [Pair with commands →](https://delegatewithclaude.com/commands)
+This is a fork of [Derek Larson](https://dtlarson.com)'s excellent [original plugin](https://github.com/derek-larson14/obsidian-claude-sidebar) ([commands pairing →](https://delegatewithclaude.com/commands)) with extra features layered on top.
 
 ![Claude Sidebar](screenshot-obsidian.png)
 
 ## Features
 
-- **Embedded terminal** - Full terminal in your Obsidian sidebar
-- **Auto-launches Claude** - Claude Code starts automatically
-- **Multiple tabs** - Run multiple Claude instances side by side
-- **Folder context menu** - Right-click any folder to open Claude in that directory
-- **YOLO mode** - Launch Claude with `--dangerously-skip-permissions` via right-click menus
-- **Multi-backend** - Switch between Claude Code, Codex, OpenCode, and Gemini CLI in settings
+### From the original plugin
+
+- **Embedded terminal** — full terminal in your Obsidian sidebar
+- **Auto-launches Claude** — Claude Code starts automatically
+- **Multiple tabs** — run multiple Claude instances side by side
+- **Folder context menu** — right-click any folder to open Claude in that directory
+- **YOLO mode** — launch Claude with `--dangerously-skip-permissions` via right-click menus
+- **Multi-backend** — switch between Claude Code, Codex, OpenCode, Gemini CLI, and Kimi Code
+
+### New in this fork
+
+- **Custom command backend** — point the sidebar at any wrapper script or alias (e.g. a `claude` launcher that configures a proxy, sets env vars, etc.) instead of being locked to the built-in backends
+- **Interactive shell option** — optionally start via `zsh -ilc` so aliases/functions from `.zshrc` resolve
+- **WebGL renderer** — ships `@xterm/addon-webgl` with context-loss auto-fallback; eliminates DOM-renderer ghosting and CJK width glitches
+- **Task-complete notifications** — auto-installs a Claude Code `Stop` hook in `~/.claude/settings.json` that fires an `obsidian://` URI when a turn ends; matches cmux's UX without the manual setup
+- **Attention-needed notifications** — spoofs `TERM_PROGRAM=iTerm.app` so Claude Code automatically emits OSC 9 on permission prompts and idle events; the plugin captures them and fires native macOS / Obsidian notifications
+- **Smart routing** — in-app toast when Obsidian is focused, system notification when it's backgrounded
 
 ## Requirements
 
@@ -26,48 +37,41 @@ Built by [Derek Larson](https://dtlarson.com). [Pair with commands →](https://
 ### Quick Install (Mac/Linux)
 
 In your vault folder, run:
+
 ```bash
-curl -sL https://github.com/derek-larson14/obsidian-claude-sidebar/archive/refs/heads/main.tar.gz | tar -xz -C .obsidian/plugins && mv .obsidian/plugins/obsidian-claude-sidebar-main .obsidian/plugins/claude-sidebar
+curl -sL https://github.com/xxih/obsidian-claude-sidebar/archive/refs/heads/main.tar.gz \
+  | tar -xz -C .obsidian/plugins \
+  && rm -rf .obsidian/plugins/claude-sidebar \
+  && mv .obsidian/plugins/obsidian-claude-sidebar-main .obsidian/plugins/claude-sidebar
 ```
 
-Then in Obsidian: Settings → Community Plugins → Refresh → Enable "Claude Sidebar"
+Then in Obsidian: Settings → Community Plugins → Refresh → Enable "Claude Sidebar".
 
-**Windows:** See [Windows Setup](#windows-setup-experimental) below.
+**Windows:** see [Windows Setup](#windows-setup-experimental).
 
-### Manual Installation
-
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/derek-larson14/obsidian-claude-sidebar/releases)
-2. Create folder: `<your-vault>/.obsidian/plugins/claude-sidebar/`
-3. Copy the downloaded files into that folder
-4. Reload Obsidian and enable the plugin in Settings → Community Plugins
-
-### BRAT (Auto-Updates)
+### BRAT (auto-updates)
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Community Plugins
-2. In BRAT settings, click "Add Beta plugin"
-3. Enter: `derek-larson14/obsidian-claude-sidebar`
-4. Enable "Claude Sidebar" in Settings → Community Plugins
+2. BRAT settings → *Add Beta plugin* → enter `xxih/obsidian-claude-sidebar`
+3. Enable "Claude Sidebar" in Settings → Community Plugins
 
-BRAT handles updates automatically when new releases are published.
-
-### From Community Plugins
-
-Once approved, you'll be able to search for "Claude Sidebar" in Community Plugins → Browse.
+BRAT pulls updates automatically as new commits land on `main`.
 
 ## Updating
 
-Paste into a Claude Code session from your vault:
+Rerun the quick-install one-liner to overwrite with the latest `main`.
 
-> Update the Claude Sidebar plugin. Download main.js, manifest.json, and styles.css from https://github.com/derek-larson14/obsidian-claude-sidebar/releases/latest/download/ into .obsidian/plugins/claude-sidebar/. Tell me the old and new version numbers.
+Or from a Claude session in your vault:
+
+> Update the Claude Sidebar plugin. Download main.js, manifest.json, and styles.css from https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/ into .obsidian/plugins/claude-sidebar/. Tell me the old and new version numbers.
 
 ### Manual
 
-In your vault folder, run:
 ```bash
 cd .obsidian/plugins/claude-sidebar
-curl -LO https://github.com/derek-larson14/obsidian-claude-sidebar/releases/latest/download/main.js
-curl -LO https://github.com/derek-larson14/obsidian-claude-sidebar/releases/latest/download/manifest.json
-curl -LO https://github.com/derek-larson14/obsidian-claude-sidebar/releases/latest/download/styles.css
+curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/main.js
+curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/manifest.json
+curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/styles.css
 ```
 
 Then restart Obsidian or disable/re-enable the plugin.
@@ -110,7 +114,7 @@ pip install pywinpty
 
 3. Install the plugin (run from your vault folder in PowerShell):
 ```powershell
-$u="https://github.com/derek-larson14/obsidian-claude-sidebar/archive/main.zip"; Invoke-WebRequest $u -OutFile s.zip; Expand-Archive s.zip .obsidian\plugins -Force; Move-Item ".obsidian\plugins\obsidian-claude-sidebar-main" ".obsidian\plugins\claude-sidebar" -Force; Remove-Item s.zip
+$u="https://github.com/xxih/obsidian-claude-sidebar/archive/main.zip"; Invoke-WebRequest $u -OutFile s.zip; Expand-Archive s.zip .obsidian\plugins -Force; Move-Item ".obsidian\plugins\obsidian-claude-sidebar-main" ".obsidian\plugins\claude-sidebar" -Force; Remove-Item s.zip
 ```
 
 4. Then in Obsidian: Settings → Community Plugins → Refresh → Enable "Claude Sidebar"
@@ -119,9 +123,11 @@ $u="https://github.com/derek-larson14/obsidian-claude-sidebar/archive/main.zip";
 
 ## How It Works
 
-- [xterm.js](https://xtermjs.org/) for terminal emulation
+- [xterm.js](https://xtermjs.org/) for terminal emulation, with [`@xterm/addon-webgl`](https://www.npmjs.com/package/@xterm/addon-webgl) for GPU rendering
 - Python's built-in `pty` module for pseudo-terminal support (macOS/Linux)
 - [pywinpty](https://github.com/andfoy/pywinpty) for Windows PTY support
+- Claude Code `Stop` hooks + `obsidian://` URI scheme for task-complete notifications
+- `TERM_PROGRAM=iTerm.app` spoofing so agent CLIs emit OSC 9 notifications natively
 
 ## Development
 
@@ -133,7 +139,9 @@ The PTY scripts (`terminal_pty.py` for Unix, `terminal_win.py` for Windows) are 
 
 ## Contributing
 
-Issues and PRs welcome at [github.com/derek-larson14/obsidian-claude-sidebar](https://github.com/derek-larson14/obsidian-claude-sidebar)
+Issues and PRs for this fork welcome at [github.com/xxih/obsidian-claude-sidebar](https://github.com/xxih/obsidian-claude-sidebar).
+
+For the upstream plugin see [github.com/derek-larson14/obsidian-claude-sidebar](https://github.com/derek-larson14/obsidian-claude-sidebar).
 
 ## License
 
