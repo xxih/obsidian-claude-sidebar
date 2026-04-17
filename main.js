@@ -7597,7 +7597,18 @@ var TerminalView = class extends import_obsidian.ItemView {
   //   OSC 99 ; ... ; <body>                   BEL / ST   (kitty / ghostty)
   detectNotifications(text) {
     if (!text || !this.plugin?.pluginData) return;
+    const debug = !!this.plugin.pluginData.notificationDebug;
     const enabled = this.plugin.pluginData.notificationsEnabled !== false;
+    if (debug && (text.includes("\x07") || text.includes("\x1b]"))) {
+      const preview = text.replace(/\x1b/g, "⎋").replace(/\x07/g, "⍾").slice(0, 200);
+      console.log("[Claude Sidebar] detectNotifications:", {
+        enabled,
+        len: text.length,
+        hasBell: text.includes("\x07"),
+        hasOsc: text.includes("\x1b]"),
+        preview,
+      });
+    }
     if (!enabled) return;
     let oscMatched = false;
     // 1) OSC notification sequences — explicit, rich payload.
@@ -7646,24 +7657,39 @@ var TerminalView = class extends import_obsidian.ItemView {
     }
   }
   fireNotification(title, body) {
+    const debug = !!this.plugin.pluginData.notificationDebug;
     const mode = this.plugin.pluginData.notificationMode || "smart";
-    const wantInApp = mode === "in-app" || mode === "both" || (mode === "smart" && document.hasFocus());
-    const wantSystem = mode === "system" || mode === "both" || (mode === "smart" && !document.hasFocus());
+    const focused = document.hasFocus();
+    const wantInApp = mode === "in-app" || mode === "both" || (mode === "smart" && focused);
+    const wantSystem = mode === "system" || mode === "both" || (mode === "smart" && !focused);
+    if (debug) {
+      console.log("[Claude Sidebar] fireNotification:", { title, body, mode, focused, wantInApp, wantSystem });
+    }
     if (wantInApp) {
-      try { new import_obsidian.Notice(`${title}: ${body}`, 5000); } catch (e) {}
+      try {
+        new import_obsidian.Notice(`${title}: ${body}`, 5000);
+        if (debug) console.log("[Claude Sidebar]   → in-app Notice sent");
+      } catch (e) { if (debug) console.warn("[Claude Sidebar]   in-app Notice failed:", e); }
     }
     if (wantSystem) {
       try {
         if (typeof Notification !== "undefined") {
+          if (debug) console.log("[Claude Sidebar]   Notification.permission =", Notification.permission);
           if (Notification.permission === "granted") {
             new Notification(title, { body });
+            if (debug) console.log("[Claude Sidebar]   → system Notification sent");
           } else if (Notification.permission !== "denied") {
             Notification.requestPermission().then((p) => {
+              if (debug) console.log("[Claude Sidebar]   permission result:", p);
               if (p === "granted") new Notification(title, { body });
             });
+          } else if (debug) {
+            console.warn("[Claude Sidebar]   system notifications denied by browser");
           }
+        } else if (debug) {
+          console.warn("[Claude Sidebar]   window.Notification is undefined");
         }
-      } catch (e) {}
+      } catch (e) { if (debug) console.warn("[Claude Sidebar]   system Notification failed:", e); }
     }
   }
   stopShell() {
@@ -8000,6 +8026,60 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
           this.createNewTab(lastCwd, false, true);
         }
         return true;
+      }
+    });
+    // Debug: force a notification through the same path detectNotifications uses.
+    // If this command doesn't produce a Notice/system notification, the problem
+    // is in the notification pipeline itself (not in detection).
+    this.addCommand({
+      id: "test-notification",
+      name: "Test notification",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(TerminalView)
+          || (this.lastActiveTerminalLeaf && this.lastActiveTerminalLeaf.view instanceof TerminalView
+              ? this.lastActiveTerminalLeaf.view
+              : null);
+        if (view && typeof view.fireNotification === "function") {
+          console.log("[Claude Sidebar] Test notification fired via active view.");
+          view.fireNotification("Claude Sidebar", "Test notification — if you see this, the pipeline works.");
+        } else {
+          // Fall back to a standalone notification when no terminal view exists
+          console.log("[Claude Sidebar] No terminal view found; firing standalone notification.");
+          try {
+            new import_obsidian.Notice("Claude Sidebar test notification (no terminal view).", 5000);
+          } catch (e) { console.warn(e); }
+          try {
+            if (typeof Notification !== "undefined") {
+              console.log("[Claude Sidebar] Notification.permission =", Notification.permission);
+              if (Notification.permission === "granted") {
+                new Notification("Claude Sidebar", { body: "Test (standalone)" });
+              } else {
+                Notification.requestPermission().then((p) => {
+                  console.log("[Claude Sidebar] Permission after request:", p);
+                  if (p === "granted") new Notification("Claude Sidebar", { body: "Test (after grant)" });
+                });
+              }
+            } else {
+              console.warn("[Claude Sidebar] window.Notification is undefined.");
+            }
+          } catch (e) { console.warn(e); }
+        }
+      }
+    });
+    // Debug: when on, log every incoming stdout chunk that contains a bell or
+    // OSC introducer, plus the result of OSC parsing. User should open Obsidian
+    // dev tools (Cmd-Opt-I) → Console, then run a Claude task and share the log.
+    this.addCommand({
+      id: "toggle-notification-debug",
+      name: "Toggle notification debug logging",
+      callback: async () => {
+        this.pluginData.notificationDebug = !this.pluginData.notificationDebug;
+        await this.saveData(this.pluginData);
+        new import_obsidian.Notice(
+          `Notification debug logging: ${this.pluginData.notificationDebug ? "ON" : "OFF"}`,
+          3000
+        );
+        console.log("[Claude Sidebar] notificationDebug =", this.pluginData.notificationDebug);
       }
     });
 
