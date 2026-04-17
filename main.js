@@ -7486,6 +7486,9 @@ var TerminalView = class extends import_obsidian.ItemView {
       TERM_PROGRAM_VERSION: "3.5.0",
       LC_TERMINAL: "iTerm2",
       LC_TERMINAL_VERSION: "3.5.0",
+      // Marker so our globally-installed Claude Stop hook only fires for
+      // sessions launched by this plugin (not cmux, iTerm, Ghostty, etc.).
+      CLAUDE_SIDEBAR_ACTIVE: "1",
     };
     if (!isWindows) {
       try {
@@ -7886,7 +7889,10 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
   }
 };
 var CLAUDE_HOOK_URI = "obsidian://claude-sidebar-notify";
-var CLAUDE_HOOK_COMMAND = `(open -g 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' 2>/dev/null || xdg-open 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' >/dev/null 2>&1) || true`;
+// The hook is global across all Claude Code sessions (user-level settings.json),
+// so gate on CLAUDE_SIDEBAR_ACTIVE — the env var we inject when spawning our own
+// shell — to avoid hijacking notifications from cmux, Ghostty, iTerm, etc.
+var CLAUDE_HOOK_COMMAND = `[ -n "$CLAUDE_SIDEBAR_ACTIVE" ] && (open -g 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' 2>/dev/null || xdg-open 'obsidian://claude-sidebar-notify?title=Claude%20Code&msg=Turn%20complete' >/dev/null 2>&1) || true`;
 var VaultTerminalPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
@@ -7969,6 +7975,11 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
     const stopGroups = (settings.hooks && settings.hooks.Stop) || [];
     return stopGroups.some(g => (g.hooks || []).some(h => (h.command || "").includes(CLAUDE_HOOK_URI)));
   }
+  hasCurrentClaudeHook() {
+    const settings = this.readClaudeSettings();
+    const stopGroups = (settings.hooks && settings.hooks.Stop) || [];
+    return stopGroups.some(g => (g.hooks || []).some(h => h && h.command === CLAUDE_HOOK_COMMAND));
+  }
   async onload() {
     this.registerView(VIEW_TYPE, (leaf) => new TerminalView(leaf, this));
     this.pluginData = await this.loadData() || {};
@@ -7991,10 +8002,13 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
     // config themselves — the cmux-style experience, minus the manual step.
     if (this.pluginData.autoInstallClaudeHooks !== false) {
       try {
-        if (!this.hasOwnedClaudeHook()) {
+        if (!this.hasCurrentClaudeHook()) {
+          const hadOld = this.hasOwnedClaudeHook();
           await this.installClaudeHooks();
           new import_obsidian.Notice(
-            "Claude Sidebar: installed turn-complete notification hook in ~/.claude/settings.json",
+            hadOld
+              ? "Claude Sidebar: updated turn-complete notification hook (now scoped to plugin sessions only)."
+              : "Claude Sidebar: installed turn-complete notification hook in ~/.claude/settings.json.",
             6000
           );
         }
