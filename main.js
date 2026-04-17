@@ -6747,6 +6747,15 @@ var CLI_BACKENDS = {
     resumeFlag: "--continue",
     resumeIsSubcommand: false,
   },
+  custom: {
+    label: "Custom command",
+    // binary is read from pluginData.customCommand at launch time
+    binary: null,
+    pathHints: [],
+    yoloFlag: null,
+    resumeFlag: null,
+    resumeIsSubcommand: false,
+  },
 };
 var TerminalView = class extends import_obsidian.ItemView {
   constructor(leaf, plugin) {
@@ -7409,7 +7418,10 @@ var TerminalView = class extends import_obsidian.ItemView {
       }
     }
     const backend = this.getBackend();
-    let cliCmd = backend.binary;
+    const isCustomBackend = this.plugin.pluginData.cliBackend === "custom";
+    const customCommand = (this.plugin.pluginData.customCommand || "").trim();
+    // For custom backend, binary is the user-supplied command; if empty, fall back to "claude".
+    let cliCmd = isCustomBackend ? (customCommand || "claude") : backend.binary;
     if (yoloMode && backend.yoloFlag) cliCmd += " " + backend.yoloFlag;
     const additionalFlags = this.plugin.pluginData.additionalFlags;
     if (additionalFlags) cliCmd += " " + additionalFlags;
@@ -7426,9 +7438,16 @@ var TerminalView = class extends import_obsidian.ItemView {
     const shellCmd = continueSession
       ? `${cliCmd} || ${baseCmd} || true; exec $SHELL -i`
       : `${cliCmd} || true; exec $SHELL -i`;
+    // Interactive shell: needed when custom command relies on aliases/functions from .zshrc.
+    // Default on for "custom" backend; user-toggleable via settings.
+    const interactivePref = this.plugin.pluginData.interactiveShell;
+    const useInteractive = interactivePref === undefined
+      ? isCustomBackend
+      : !!interactivePref;
+    const shellFlag = useInteractive ? "-ilc" : "-lc";
     let args = isWindows
       ? [ptyPath, String(cols), String(rows), shell]
-      : [ptyPath, String(cols), String(rows), shell, "-lc", shellCmd];
+      : [ptyPath, String(cols), String(rows), shell, shellFlag, shellCmd];
 
     // Get PATH from user's login shell (GUI apps don't inherit shell config)
     let shellEnv = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" };
@@ -7597,7 +7616,7 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
     containerEl.empty();
     new import_obsidian.Setting(containerEl)
       .setName("CLI backend")
-      .setDesc("Which coding agent CLI to run in the sidebar.")
+      .setDesc("Which coding agent CLI to run in the sidebar. Choose Custom to supply your own command (e.g. a wrapper script like ccl).")
       .addDropdown(drop => {
         for (const [key, backend] of Object.entries(CLI_BACKENDS)) {
           drop.addOption(key, backend.label);
@@ -7606,8 +7625,21 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
         drop.onChange(async (value) => {
           this.plugin.pluginData.cliBackend = value;
           await this.plugin.saveData(this.plugin.pluginData);
+          this.display(); // re-render so the custom-command field appears/hides
         });
       });
+    if ((this.plugin.pluginData.cliBackend || "claude") === "custom") {
+      new import_obsidian.Setting(containerEl)
+        .setName("Custom command")
+        .setDesc("The exact command to execute. Can be an absolute path, an alias, or an inline shell snippet. Runs under your login shell so PATH, env, and (when Interactive shell is on) aliases from .zshrc are available.")
+        .addText(text => text
+          .setPlaceholder("~/start-claude.sh  or  ccl  or  env X=1 claude")
+          .setValue(this.plugin.pluginData.customCommand || "")
+          .onChange(async (value) => {
+            this.plugin.pluginData.customCommand = value.trim() || null;
+            await this.plugin.saveData(this.plugin.pluginData);
+          }));
+    }
     new import_obsidian.Setting(containerEl)
       .setName("Default working directory")
       .setDesc("Absolute path or relative to vault root. Leave empty for vault root.")
@@ -7628,6 +7660,19 @@ var ClaudeSidebarSettingsTab = class extends import_obsidian.PluginSettingTab {
           this.plugin.pluginData.additionalFlags = value.trim() || null;
           await this.plugin.saveData(this.plugin.pluginData);
         }));
+    new import_obsidian.Setting(containerEl)
+      .setName("Interactive shell")
+      .setDesc("Launch the command via zsh -ilc so aliases and functions from .zshrc are available. Default: on for Custom, off otherwise. Turn on if your command relies on shell aliases.")
+      .addToggle(toggle => {
+        const pref = this.plugin.pluginData.interactiveShell;
+        const current = pref === undefined
+          ? (this.plugin.pluginData.cliBackend || "claude") === "custom"
+          : !!pref;
+        toggle.setValue(current).onChange(async (value) => {
+          this.plugin.pluginData.interactiveShell = value;
+          await this.plugin.saveData(this.plugin.pluginData);
+        });
+      });
   }
 };
 var VaultTerminalPlugin = class extends import_obsidian.Plugin {
