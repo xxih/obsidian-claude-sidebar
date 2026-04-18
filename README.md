@@ -41,13 +41,15 @@ In your vault folder, run:
 ```bash
 curl -sL https://github.com/xxih/obsidian-claude-sidebar/archive/refs/heads/main.tar.gz \
   | tar -xz -C .obsidian/plugins \
-  && rm -rf .obsidian/plugins/claude-sidebar \
-  && mv .obsidian/plugins/obsidian-claude-sidebar-main .obsidian/plugins/claude-sidebar
+  && rm -rf .obsidian/plugins/claude-sidebar-xxih \
+  && mv .obsidian/plugins/obsidian-claude-sidebar-main .obsidian/plugins/claude-sidebar-xxih
 ```
+
+> **Note:** this fork uses plugin id `claude-sidebar-xxih` so it can live alongside the upstream `claude-sidebar` plugin without Obsidian Sync overwriting one with the other.
 
 Then in Obsidian: Settings → Community Plugins → Refresh → Enable "Claude Sidebar".
 
-**Windows:** see [Windows Setup](#windows-setup-experimental).
+**Windows:** see [Windows Setup](#windows-setup-experimental) (and adjust the target folder to `claude-sidebar-xxih`).
 
 ### BRAT (auto-updates)
 
@@ -63,12 +65,12 @@ Rerun the quick-install one-liner to overwrite with the latest `main`.
 
 Or from a Claude session in your vault:
 
-> Update the Claude Sidebar plugin. Download main.js, manifest.json, and styles.css from https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/ into .obsidian/plugins/claude-sidebar/. Tell me the old and new version numbers.
+> Update the Claude Sidebar (xxih fork) plugin. Download main.js, manifest.json, and styles.css from https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/ into .obsidian/plugins/claude-sidebar-xxih/. Tell me the old and new version numbers.
 
 ### Manual
 
 ```bash
-cd .obsidian/plugins/claude-sidebar
+cd .obsidian/plugins/claude-sidebar-xxih
 curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/main.js
 curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/manifest.json
 curl -LO https://raw.githubusercontent.com/xxih/obsidian-claude-sidebar/main/styles.css
@@ -114,7 +116,7 @@ pip install pywinpty
 
 3. Install the plugin (run from your vault folder in PowerShell):
 ```powershell
-$u="https://github.com/xxih/obsidian-claude-sidebar/archive/main.zip"; Invoke-WebRequest $u -OutFile s.zip; Expand-Archive s.zip .obsidian\plugins -Force; Move-Item ".obsidian\plugins\obsidian-claude-sidebar-main" ".obsidian\plugins\claude-sidebar" -Force; Remove-Item s.zip
+$u="https://github.com/xxih/obsidian-claude-sidebar/archive/main.zip"; Invoke-WebRequest $u -OutFile s.zip; Expand-Archive s.zip .obsidian\plugins -Force; Move-Item ".obsidian\plugins\obsidian-claude-sidebar-main" ".obsidian\plugins\claude-sidebar-xxih" -Force; Remove-Item s.zip
 ```
 
 4. Then in Obsidian: Settings → Community Plugins → Refresh → Enable "Claude Sidebar"

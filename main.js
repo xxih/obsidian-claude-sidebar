@@ -6711,7 +6711,7 @@ var import_child_process = require("child_process");
 var path = __toESM(require("path"));
 var fs = __toESM(require("fs"));
 var { StringDecoder } = require("string_decoder");
-var VIEW_TYPE = "vault-terminal";
+var VIEW_TYPE = "vault-terminal-xxih";
 var CLI_BACKENDS = {
   claude: {
     label: "Claude Code",
